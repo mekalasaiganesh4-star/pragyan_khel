@@ -119,25 +119,6 @@ export default function Dashboard() {
     }));
   };
 
-  const handleVideoMark = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!videoRef.current || results.length === 0) return;
-    
-    const currentTime = videoRef.current.currentTime;
-    // Find the frame index closest to the current playback time
-    let closestIndex = 0;
-    let minDiff = Infinity;
-    
-    results.forEach((res, idx) => {
-      const diff = Math.abs(parseFloat(res.timestamp) - currentTime);
-      if (diff < minDiff) {
-        minDiff = diff;
-        closestIndex = idx;
-      }
-    });
-
-    handleManualMark(closestIndex, e);
-  };
-
   const runAnalysis = async () => {
     if (!videoRef.current || !videoUrl) return;
     setIsAnalyzing(true);
@@ -272,21 +253,15 @@ export default function Dashboard() {
               <FileVideo className="h-5 w-5 text-primary" />
               Trajectory Inspector
             </CardTitle>
-            <CardDescription>
-              Click on the video to manually mark or adjust the ball's position.
-            </CardDescription>
           </CardHeader>
           <CardContent className="p-0 relative aspect-video bg-black flex items-center justify-center">
             {videoUrl ? (
-              <div 
-                className="relative w-full h-full group/video-container cursor-crosshair"
-                onClick={handleVideoMark}
-              >
+              <div className="relative w-full h-full">
                 <video
                   ref={videoRef}
                   src={videoUrl}
                   controls
-                  className="max-h-full w-full pointer-events-auto"
+                  className="max-h-full w-full"
                   crossOrigin="anonymous"
                   onLoadedMetadata={extractPreviewFrames}
                 />
@@ -322,13 +297,6 @@ export default function Dashboard() {
                     ))}
                   </svg>
                 </div>
-                {results.length > 0 && (
-                  <div className="absolute top-4 right-4 opacity-0 group-hover/video-container:opacity-100 transition-opacity">
-                    <Badge variant="secondary" className="bg-black/60 text-white backdrop-blur-md border-none">
-                      <MousePointer2 className="h-3 w-3 mr-1" /> Click to mark ball
-                    </Badge>
-                  </div>
-                )}
               </div>
             ) : (
               <div className="flex flex-col items-center gap-3 text-white/50">
