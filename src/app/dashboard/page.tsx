@@ -119,40 +119,6 @@ export default function Dashboard() {
     }));
   };
 
-  const handleVideoMark = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!videoRef.current || results.length === 0) return;
-    
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = (e.clientX - rect.left) / rect.width;
-    const y = (e.clientY - rect.top) / rect.height;
-    
-    const currentTime = videoRef.current.currentTime;
-    let closestIdx = 0;
-    let minDiff = Infinity;
-    
-    results.forEach((res, idx) => {
-      const diff = Math.abs(parseFloat(res.timestamp) - currentTime);
-      if (diff < minDiff) {
-        minDiff = diff;
-        closestIdx = idx;
-      }
-    });
-
-    setResults(prev => prev.map((res, i) => {
-      if (i === closestIdx) {
-        return {
-          ...res,
-          ballTracking: {
-            isDetected: true,
-            x,
-            y
-          }
-        };
-      }
-      return res;
-    }));
-  };
-
   const runAnalysis = async () => {
     if (!videoRef.current || !videoUrl) return;
     setIsAnalyzing(true);
@@ -287,11 +253,11 @@ export default function Dashboard() {
               <FileVideo className="h-5 w-5 text-primary" />
               Trajectory Inspector
             </CardTitle>
-            <CardDescription className="flex items-center gap-2">
-              {results.length > 0 && <Badge variant="outline" className="text-accent border-accent/20 bg-accent/5">Click on video to adjust path</Badge>}
+            <CardDescription>
+              Visualization of the detected motion path and ball trajectory.
             </CardDescription>
           </CardHeader>
-          <CardContent className="p-0 relative aspect-video bg-black flex items-center justify-center group/video">
+          <CardContent className="p-0 relative aspect-video bg-black flex items-center justify-center">
             {videoUrl ? (
               <>
                 <video
@@ -303,11 +269,8 @@ export default function Dashboard() {
                   onLoadedMetadata={extractPreviewFrames}
                 />
                 <canvas ref={canvasRef} className="hidden" />
-                <div 
-                  className="absolute inset-0 cursor-crosshair z-10" 
-                  onClick={handleVideoMark}
-                >
-                  <svg className="w-full h-full pointer-events-none">
+                <div className="absolute inset-0 pointer-events-none z-10">
+                  <svg className="w-full h-full">
                     {trajectoryPoints.length > 1 && trajectoryPoints.map((point, idx) => {
                       if (idx === 0) return null;
                       const prev = trajectoryPoints[idx - 1];
@@ -336,9 +299,6 @@ export default function Dashboard() {
                       />
                     ))}
                   </svg>
-                  <div className="absolute inset-0 bg-accent/5 opacity-0 group-hover/video:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
-                    <MousePointer2 className="h-8 w-8 text-white drop-shadow-lg" />
-                  </div>
                 </div>
               </>
             ) : (
@@ -415,7 +375,7 @@ export default function Dashboard() {
                 </CardTitle>
                 <CardDescription>
                   {results.length > 0 
-                    ? "Click on any frame below or on the main video to manually mark the ball's position." 
+                    ? "Click on any frame below to manually mark or adjust the ball's position." 
                     : "Previewing frames from the uploaded video stream."}
                 </CardDescription>
               </div>
