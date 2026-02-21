@@ -8,7 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { Upload, Play, AlertCircle, CheckCircle2, FileVideo, History, Activity, AlertTriangle } from "lucide-react";
+import { Upload, Play, AlertCircle, CheckCircle2, FileVideo, History, Activity, AlertTriangle, Image as ImageIcon } from "lucide-react";
 import { detectMotionInconsistencies, type DetectMotionInconsistenciesOutput } from "@/ai/flows/detect-motion-inconsistencies-flow";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis, ResponsiveContainer } from "recharts";
@@ -22,11 +22,18 @@ type AnalysisResult = {
   frameDataUri: string;
 };
 
+type VideoFrame = {
+  timestamp: string;
+  dataUri: string;
+};
+
 export default function Dashboard() {
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isExtracting, setIsExtracting] = useState(false);
   const [results, setResults] = useState<AnalysisResult[]>([]);
+  const [previewFrames, setPreviewFrames] = useState<VideoFrame[]>([]);
   const [progress, setProgress] = useState(0);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -37,6 +44,7 @@ export default function Dashboard() {
       setVideoFile(file);
       setVideoUrl(URL.createObjectURL(file));
       setResults([]);
+      setPreviewFrames([]);
       setProgress(0);
     }
   };
@@ -52,6 +60,37 @@ export default function Dashboard() {
     return canvas.toDataURL("image/jpeg", 0.7);
   };
 
+  const extractPreviewFrames = async () => {
+    if (!videoRef.current || !videoUrl || isExtracting) return;
+    setIsExtracting(true);
+    const video = videoRef.current;
+    
+    // Wait for metadata if not already loaded
+    if (video.readyState < 1) {
+      await new Promise((resolve) => {
+        video.onloadedmetadata = resolve;
+      });
+    }
+
+    const duration = video.duration;
+    const frameCount = 12;
+    const interval = duration / frameCount;
+    const frames: VideoFrame[] = [];
+
+    for (let i = 0; i < frameCount; i++) {
+      video.currentTime = i * interval;
+      await new Promise((resolve) => {
+        video.onseeked = resolve;
+      });
+      frames.push({
+        timestamp: (i * interval).toFixed(2),
+        dataUri: captureFrame(video),
+      });
+    }
+    setPreviewFrames(frames);
+    setIsExtracting(false);
+  };
+
   const runAnalysis = async () => {
     if (!videoRef.current || !videoUrl) return;
     setIsAnalyzing(true);
@@ -60,7 +99,7 @@ export default function Dashboard() {
 
     const video = videoRef.current;
     const duration = video.duration;
-    const frameCount = 10; // We'll analyze 10 frames for this demonstration
+    const frameCount = 10;
     const interval = duration / frameCount;
 
     const analyzedResults: AnalysisResult[] = [];
@@ -94,7 +133,6 @@ export default function Dashboard() {
           console.error("AI Analysis failed for frame", i, error);
         }
       } else {
-        // First frame is always normal baseline
         analyzedResults.push({
           frameNumber: 0,
           timestamp: "0.000",
@@ -170,6 +208,7 @@ export default function Dashboard() {
                   controls
                   className="max-h-full w-full"
                   crossOrigin="anonymous"
+                  onLoadedMetadata={extractPreviewFrames}
                 />
                 <canvas ref={canvasRef} className="hidden" />
               </>
@@ -241,18 +280,61 @@ export default function Dashboard() {
         <TabsContent value="report" className="space-y-6">
           <Card className="border-none shadow-xl">
             <CardHeader>
-              <CardTitle className="font-headline">Frame-by-Frame Classification</CardTitle>
-              <CardDescription>Results from temporal consistency analysis.</CardDescription>
+              <CardTitle className="font-headline">
+                {results.length > 0 ? "Frame-by-Frame Classification" : "Video Frame Gallery"}
+              </CardTitle>
+              <CardDescription>
+                {results.length > 0 
+                  ? "Results from temporal consistency analysis." 
+                  : "Previewing frames from the uploaded video stream."}
+              </CardDescription>
             </CardHeader>
             <CardContent>
-              <ScrollArea className="h-[400px] pr-4">
-                <div className="space-y-4">
-                  {results.length === 0 ? (
-                    <div className="text-center py-20 text-muted-foreground">
-                      Run analysis to see detailed frame data.
-                    </div>
-                  ) : (
-                    results.map((result, idx) => (
+              <ScrollArea className="h-[450px] pr-4">
+                {results.length === 0 ? (
+                  <div className="space-y-6">
+                    {previewFrames.length > 0 ? (
+                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                        {previewFrames.map((frame, idx) => (
+                          <div key={idx} className="group relative aspect-video rounded-xl overflow-hidden border border-border bg-muted">
+                            <img 
+                              src={frame.dataUri} 
+                              alt={`Frame at ${frame.timestamp}s`} 
+                              className="object-cover w-full h-full transition-transform group-hover:scale-110" 
+                            />
+                            <div className="absolute bottom-0 inset-x-0 bg-black/60 backdrop-blur-sm p-2 text-[10px] text-white font-code flex justify-between items-center opacity-0 group-hover:opacity-100 transition-opacity">
+                              <span>FRAME PREVIEW</span>
+                              <span>{frame.timestamp}s</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-20 text-muted-foreground flex flex-col items-center gap-4">
+                        {isExtracting ? (
+                          <>
+                            <Activity className="h-8 w-8 animate-spin text-primary" />
+                            <p>Extracting video frames...</p>
+                          </>
+                        ) : (
+                          <>
+                            <ImageIcon className="h-10 w-10 opacity-20" />
+                            <p>Upload a video to see frame data.</p>
+                          </>
+                        )}
+                      </div>
+                    )}
+                    {previewFrames.length > 0 && (
+                      <div className="flex justify-center py-4">
+                        <Button onClick={runAnalysis} className="rounded-full">
+                          <Activity className="mr-2 h-4 w-4" /> Run AI Analysis on these Frames
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {results.map((result, idx) => (
                       <div key={idx} className="group p-4 rounded-2xl border border-border bg-card hover:border-primary transition-all">
                         <div className="flex items-start gap-4">
                           <div className="relative w-32 aspect-video rounded-lg overflow-hidden bg-muted flex-shrink-0">
@@ -277,9 +359,9 @@ export default function Dashboard() {
                           </div>
                         </div>
                       </div>
-                    ))
-                  )}
-                </div>
+                    ))}
+                  </div>
+                )}
               </ScrollArea>
             </CardContent>
           </Card>
