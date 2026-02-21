@@ -119,6 +119,40 @@ export default function Dashboard() {
     }));
   };
 
+  const handleVideoMark = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!videoRef.current || results.length === 0) return;
+    
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width;
+    const y = (e.clientY - rect.top) / rect.height;
+    
+    const currentTime = videoRef.current.currentTime;
+    let closestIdx = 0;
+    let minDiff = Infinity;
+    
+    results.forEach((res, idx) => {
+      const diff = Math.abs(parseFloat(res.timestamp) - currentTime);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closestIdx = idx;
+      }
+    });
+
+    setResults(prev => prev.map((res, i) => {
+      if (i === closestIdx) {
+        return {
+          ...res,
+          ballTracking: {
+            isDetected: true,
+            x,
+            y
+          }
+        };
+      }
+      return res;
+    }));
+  };
+
   const runAnalysis = async () => {
     if (!videoRef.current || !videoUrl) return;
     setIsAnalyzing(true);
@@ -253,8 +287,11 @@ export default function Dashboard() {
               <FileVideo className="h-5 w-5 text-primary" />
               Trajectory Inspector
             </CardTitle>
+            <CardDescription className="flex items-center gap-2">
+              {results.length > 0 && <Badge variant="outline" className="text-accent border-accent/20 bg-accent/5">Click on video to adjust path</Badge>}
+            </CardDescription>
           </CardHeader>
-          <CardContent className="p-0 relative aspect-video bg-black flex items-center justify-center">
+          <CardContent className="p-0 relative aspect-video bg-black flex items-center justify-center group/video">
             {videoUrl ? (
               <>
                 <video
@@ -266,35 +303,43 @@ export default function Dashboard() {
                   onLoadedMetadata={extractPreviewFrames}
                 />
                 <canvas ref={canvasRef} className="hidden" />
-                <svg className="absolute inset-0 pointer-events-none w-full h-full">
-                  {trajectoryPoints.length > 1 && trajectoryPoints.map((point, idx) => {
-                    if (idx === 0) return null;
-                    const prev = trajectoryPoints[idx - 1];
-                    return (
-                      <line
+                <div 
+                  className="absolute inset-0 cursor-crosshair z-10" 
+                  onClick={handleVideoMark}
+                >
+                  <svg className="w-full h-full pointer-events-none">
+                    {trajectoryPoints.length > 1 && trajectoryPoints.map((point, idx) => {
+                      if (idx === 0) return null;
+                      const prev = trajectoryPoints[idx - 1];
+                      return (
+                        <line
+                          key={idx}
+                          x1={`${prev.x * 100}%`}
+                          y1={`${prev.y * 100}%`}
+                          x2={`${point.x * 100}%`}
+                          y2={`${point.y * 100}%`}
+                          stroke="hsl(var(--accent))"
+                          strokeWidth="3"
+                          strokeDasharray="5,5"
+                          className="animate-in fade-in duration-500"
+                        />
+                      );
+                    })}
+                    {trajectoryPoints.map((point, idx) => (
+                      <circle
                         key={idx}
-                        x1={`${prev.x * 100}%`}
-                        y1={`${prev.y * 100}%`}
-                        x2={`${point.x * 100}%`}
-                        y2={`${point.y * 100}%`}
-                        stroke="hsl(var(--accent))"
-                        strokeWidth="3"
-                        strokeDasharray="5,5"
-                        className="animate-in fade-in duration-500"
+                        cx={`${point.x * 100}%`}
+                        cy={`${point.y * 100}%`}
+                        r="6"
+                        fill="hsl(var(--accent))"
+                        className="animate-pulse"
                       />
-                    );
-                  })}
-                  {trajectoryPoints.map((point, idx) => (
-                    <circle
-                      key={idx}
-                      cx={`${point.x * 100}%`}
-                      cy={`${point.y * 100}%`}
-                      r="6"
-                      fill="hsl(var(--accent))"
-                      className="animate-pulse"
-                    />
-                  ))}
-                </svg>
+                    ))}
+                  </svg>
+                  <div className="absolute inset-0 bg-accent/5 opacity-0 group-hover/video:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+                    <MousePointer2 className="h-8 w-8 text-white drop-shadow-lg" />
+                  </div>
+                </div>
               </>
             ) : (
               <div className="flex flex-col items-center gap-3 text-white/50">
@@ -370,7 +415,7 @@ export default function Dashboard() {
                 </CardTitle>
                 <CardDescription>
                   {results.length > 0 
-                    ? "Click on any frame to manually mark the ball's position." 
+                    ? "Click on any frame below or on the main video to manually mark the ball's position." 
                     : "Previewing frames from the uploaded video stream."}
                 </CardDescription>
               </div>
@@ -427,7 +472,7 @@ export default function Dashboard() {
                           >
                             <img src={result.frameDataUri} alt={`Frame ${result.frameNumber}`} className="object-cover w-full h-full pointer-events-none" />
                             
-                            {/* Dotted lines as trajectory path for each frame */}
+                            {/* Trajectory path for each individual frame preview */}
                             <svg className="absolute inset-0 pointer-events-none w-full h-full">
                               {results.slice(0, idx + 1).map((r, i, arr) => {
                                 if (i === 0 || !r.ballTracking?.isDetected || !arr[i-1].ballTracking?.isDetected) return null;
