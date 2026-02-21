@@ -1,10 +1,10 @@
 'use server';
 /**
  * @fileOverview This file implements a Genkit flow to detect temporal inconsistencies
- * (frame drops or merges) in video streams by analyzing motion patterns between consecutive frames.
+ * and track ball trajectory in video streams, specifically optimized for sports like cricket.
  *
  * - detectMotionInconsistencies - A function that processes two consecutive frames
- *   to classify their temporal consistency.
+ *   to classify their temporal consistency and track object movement.
  * - DetectMotionInconsistenciesInput - The input type for the detectMotionInconsistencies function.
  * - DetectMotionInconsistenciesOutput - The return type for the detectMotionInconsistencies function.
  */
@@ -50,6 +50,11 @@ const DetectMotionInconsistenciesOutputSchema = z.object({
   reasoning: z
     .string()
     .describe('A detailed explanation for the classification.'),
+  ballTracking: z.object({
+    isDetected: z.boolean().describe('Whether a ball (e.g., a cricket ball) is detected in the current frame.'),
+    x: z.number().min(0).max(1).optional().describe('The X coordinate of the ball center, normalized 0.0 to 1.0.'),
+    y: z.number().min(0).max(1).optional().describe('The Y coordinate of the ball center, normalized 0.0 to 1.0.'),
+  }).optional().describe('Tracking information for a ball in the scene.'),
 });
 
 export type DetectMotionInconsistenciesOutput = z.infer<
@@ -66,18 +71,20 @@ const detectMotionInconsistenciesPrompt = ai.definePrompt({
   name: 'detectMotionInconsistenciesPrompt',
   input: { schema: DetectMotionInconsistenciesInputSchema },
   output: { schema: DetectMotionInconsistenciesOutputSchema },
-  prompt: `You are an expert video motion analyst. Your task is to compare two consecutive video frames and determine if there's a temporal inconsistency, specifically a 'Frame Drop' or 'Frame Merge'.
+  prompt: `You are an expert video motion analyst specializing in sports physics and temporal consistency. 
 
-Analyze the motion, objects, and overall visual continuity between the 'Previous Frame' and 'Current Frame'. Consider the following definitions:
+Your task is to compare two consecutive video frames (Previous and Current) and:
+1. Determine if there's a temporal inconsistency ('Frame Drop', 'Frame Merge', or 'Normal').
+2. Identify and track a ball (like a cricket ball) in the 'Current Frame'.
 
-*   **Frame Drop**: This occurs when one or more frames are missing. Visually, this might look like a sudden, abrupt jump in motion or scene content, where objects appear to teleport or skip positions without smooth transition. There is a clear discontinuity that suggests intermediate frames are absent.
-*   **Frame Merge**: This occurs when multiple frames are blended or incorrectly combined. Visually, this might look like blurry, ghosting, or blended objects, where elements from different moments in time are visible in a single frame. This often results in a smeared or overlapping appearance.
-*   **Normal**: The transition between frames is smooth and consistent with expected motion, indicating no temporal inconsistency.
-
-Based on your analysis, classify the 'Current Frame' (Frame number: {{{frameNumber}}}) relative to the 'Previous Frame'. Provide a confidence score (0.0 to 1.0) and a detailed reasoning for your classification.
+Analysis Criteria:
+* **Frame Drop**: Sudden, abrupt jumps in motion. Objects teleport without smooth transition.
+* **Frame Merge**: Blurry, ghosting, or blended objects where multiple moments are visible in one frame.
+* **Ball Tracking**: Locate the center of the ball in the 'Current Frame'. Provide coordinates normalized from 0.0 (top/left) to 1.0 (bottom/right). This is especially important after a cricketer hits the ball to track its trajectory.
 
 Previous Frame: {{media url=previousFrameDataUri contentType="image/jpeg"}}
-Current Frame: {{media url=currentFrameDataUri contentType="image/jpeg"}}`,
+Current Frame: {{media url=currentFrameDataUri contentType="image/jpeg"}}
+Frame Number: {{{frameNumber}}}`,
 });
 
 const detectMotionInconsistenciesFlow = ai.defineFlow(

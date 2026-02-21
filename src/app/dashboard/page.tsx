@@ -8,10 +8,16 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { Upload, Play, AlertCircle, CheckCircle2, FileVideo, History, Activity, AlertTriangle, Image as ImageIcon } from "lucide-react";
+import { Upload, Play, AlertCircle, CheckCircle2, FileVideo, History, Activity, AlertTriangle, Image as ImageIcon, Target } from "lucide-react";
 import { detectMotionInconsistencies, type DetectMotionInconsistenciesOutput } from "@/ai/flows/detect-motion-inconsistencies-flow";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis, ResponsiveContainer } from "recharts";
+
+type BallTracking = {
+  isDetected: boolean;
+  x?: number;
+  y?: number;
+};
 
 type AnalysisResult = {
   frameNumber: number;
@@ -20,6 +26,7 @@ type AnalysisResult = {
   confidence: number;
   reasoning: string;
   frameDataUri: string;
+  ballTracking?: BallTracking;
 };
 
 type VideoFrame = {
@@ -65,7 +72,6 @@ export default function Dashboard() {
     setIsExtracting(true);
     const video = videoRef.current;
     
-    // Wait for metadata if not already loaded
     if (video.readyState < 1) {
       await new Promise((resolve) => {
         video.onloadedmetadata = resolve;
@@ -128,6 +134,7 @@ export default function Dashboard() {
             confidence: aiResult.confidence,
             reasoning: aiResult.reasoning,
             frameDataUri: currentFrameUri,
+            ballTracking: aiResult.ballTracking,
           });
         } catch (error) {
           console.error("AI Analysis failed for frame", i, error);
@@ -140,6 +147,7 @@ export default function Dashboard() {
           confidence: 1,
           reasoning: "Baseline frame.",
           frameDataUri: currentFrameUri,
+          ballTracking: { isDetected: false },
         });
       }
 
@@ -156,6 +164,7 @@ export default function Dashboard() {
     drops: results.filter((r) => r.classification === "Frame Drop").length,
     merges: results.filter((r) => r.classification === "Frame Merge").length,
     normal: results.filter((r) => r.classification === "Normal").length,
+    ballHits: results.filter((r) => r.ballTracking?.isDetected).length,
   };
 
   const chartData = results.map((r) => ({
@@ -163,12 +172,16 @@ export default function Dashboard() {
     confidence: r.confidence * 100,
   }));
 
+  const trajectoryPoints = results
+    .filter(r => r.ballTracking?.isDetected && r.ballTracking.x !== undefined && r.ballTracking.y !== undefined)
+    .map(r => ({ x: r.ballTracking!.x!, y: r.ballTracking!.y!, frame: r.frameNumber }));
+
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-headline font-bold text-primary tracking-tight">Temporal Analysis</h1>
-          <p className="text-muted-foreground font-body">Detect frame inconsistencies in your video streams.</p>
+          <h1 className="text-3xl font-headline font-bold text-primary tracking-tight">Temporal Vision</h1>
+          <p className="text-muted-foreground font-body">Detect frame inconsistencies and track trajectory paths.</p>
         </div>
         <div className="flex gap-3">
           <input
@@ -196,7 +209,7 @@ export default function Dashboard() {
           <CardHeader className="bg-primary/5 pb-4">
             <CardTitle className="text-xl font-headline flex items-center gap-2">
               <FileVideo className="h-5 w-5 text-primary" />
-              Video Inspector
+              Trajectory Inspector
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0 relative aspect-video bg-black flex items-center justify-center">
@@ -211,6 +224,36 @@ export default function Dashboard() {
                   onLoadedMetadata={extractPreviewFrames}
                 />
                 <canvas ref={canvasRef} className="hidden" />
+                {/* Trajectory Overlay */}
+                <svg className="absolute inset-0 pointer-events-none w-full h-full">
+                  {trajectoryPoints.length > 1 && trajectoryPoints.map((point, idx) => {
+                    if (idx === 0) return null;
+                    const prev = trajectoryPoints[idx - 1];
+                    return (
+                      <line
+                        key={idx}
+                        x1={`${prev.x * 100}%`}
+                        y1={`${prev.y * 100}%`}
+                        x2={`${point.x * 100}%`}
+                        y2={`${point.y * 100}%`}
+                        stroke="hsl(var(--accent))"
+                        strokeWidth="3"
+                        strokeDasharray="5,5"
+                        className="animate-in fade-in duration-500"
+                      />
+                    );
+                  })}
+                  {trajectoryPoints.map((point, idx) => (
+                    <circle
+                      key={idx}
+                      cx={`${point.x * 100}%`}
+                      cy={`${point.y * 100}%`}
+                      r="6"
+                      fill="hsl(var(--accent))"
+                      className="animate-pulse"
+                    />
+                  ))}
+                </svg>
               </>
             ) : (
               <div className="flex flex-col items-center gap-3 text-white/50">
@@ -233,8 +276,8 @@ export default function Dashboard() {
                   <p className="text-2xl font-bold text-primary">{stats.total}</p>
                 </div>
                 <div className="p-4 bg-background rounded-xl border border-border">
-                  <p className="text-xs text-muted-foreground uppercase tracking-wider font-bold">Inconsistencies</p>
-                  <p className="text-2xl font-bold text-destructive">{stats.drops + stats.merges}</p>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wider font-bold">Ball Tracked</p>
+                  <p className="text-2xl font-bold text-accent">{stats.ballHits}</p>
                 </div>
               </div>
               <div className="space-y-2">
@@ -261,8 +304,8 @@ export default function Dashboard() {
                 <div className="flex flex-col items-center gap-4 text-center">
                   <Activity className="h-8 w-8 text-primary animate-spin" />
                   <div className="space-y-2 w-full">
-                    <p className="font-headline font-bold">Analyzing Temporal Flow</p>
-                    <p className="text-xs text-muted-foreground">Extracting motion vectors and timestamps...</p>
+                    <p className="font-headline font-bold">Plotting Trajectory</p>
+                    <p className="text-xs text-muted-foreground">Identifying motion vectors and ball path...</p>
                     <Progress value={progress} className="h-2" />
                   </div>
                 </div>
@@ -281,16 +324,16 @@ export default function Dashboard() {
           <Card className="border-none shadow-xl">
             <CardHeader>
               <CardTitle className="font-headline">
-                {results.length > 0 ? "Frame-by-Frame Classification" : "Video Frame Gallery"}
+                {results.length > 0 ? "Frame-by-Frame Tracking" : "Video Frame Gallery"}
               </CardTitle>
               <CardDescription>
                 {results.length > 0 
-                  ? "Results from temporal consistency analysis." 
+                  ? "Results from temporal consistency and trajectory analysis." 
                   : "Previewing frames from the uploaded video stream."}
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <ScrollArea className="h-[450px] pr-4">
+              <ScrollArea className="h-[500px] pr-4">
                 {results.length === 0 ? (
                   <div className="space-y-6">
                     {previewFrames.length > 0 ? (
@@ -324,38 +367,47 @@ export default function Dashboard() {
                         )}
                       </div>
                     )}
-                    {previewFrames.length > 0 && (
-                      <div className="flex justify-center py-4">
-                        <Button onClick={runAnalysis} className="rounded-full">
-                          <Activity className="mr-2 h-4 w-4" /> Run AI Analysis on these Frames
-                        </Button>
-                      </div>
-                    )}
                   </div>
                 ) : (
                   <div className="space-y-4">
                     {results.map((result, idx) => (
                       <div key={idx} className="group p-4 rounded-2xl border border-border bg-card hover:border-primary transition-all">
                         <div className="flex items-start gap-4">
-                          <div className="relative w-32 aspect-video rounded-lg overflow-hidden bg-muted flex-shrink-0">
+                          <div className="relative w-40 aspect-video rounded-lg overflow-hidden bg-muted flex-shrink-0">
                             <img src={result.frameDataUri} alt={`Frame ${result.frameNumber}`} className="object-cover w-full h-full" />
+                            {result.ballTracking?.isDetected && result.ballTracking.x !== undefined && result.ballTracking.y !== undefined && (
+                              <div 
+                                className="absolute w-4 h-4 border-2 border-accent rounded-full -translate-x-1/2 -translate-y-1/2"
+                                style={{ 
+                                  left: `${result.ballTracking.x * 100}%`, 
+                                  top: `${result.ballTracking.y * 100}%` 
+                                }}
+                              >
+                                <div className="absolute inset-0 bg-accent/30 animate-ping rounded-full" />
+                              </div>
+                            )}
                           </div>
-                          <div className="flex-1 space-y-1">
+                          <div className="flex-1 space-y-2">
                             <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-2 flex-wrap">
                                 <span className="font-code text-xs bg-muted px-2 py-0.5 rounded text-muted-foreground">F#{result.frameNumber}</span>
                                 <span className="font-code text-xs bg-muted px-2 py-0.5 rounded text-muted-foreground">{result.timestamp}s</span>
                                 {result.classification === "Normal" ? (
                                   <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20"><CheckCircle2 className="h-3 w-3 mr-1" /> Normal</Badge>
                                 ) : result.classification === "Frame Drop" ? (
-                                  <Badge className="bg-destructive/10 text-destructive border-destructive/20 animate-bounce"><AlertCircle className="h-3 w-3 mr-1" /> Frame Drop</Badge>
+                                  <Badge className="bg-destructive/10 text-destructive border-destructive/20"><AlertCircle className="h-3 w-3 mr-1" /> Frame Drop</Badge>
                                 ) : (
                                   <Badge className="bg-amber-500/10 text-amber-600 border-amber-500/20"><AlertTriangle className="h-3 w-3 mr-1" /> Frame Merge</Badge>
                                 )}
+                                {result.ballTracking?.isDetected && (
+                                  <Badge variant="outline" className="border-accent text-accent bg-accent/5">
+                                    <Target className="h-3 w-3 mr-1" /> Ball Detected
+                                  </Badge>
+                                )}
                               </div>
-                              <span className="text-xs font-bold text-accent">{(result.confidence * 100).toFixed(0)}% Confidence</span>
+                              <span className="text-xs font-bold text-primary">{(result.confidence * 100).toFixed(0)}% Conf.</span>
                             </div>
-                            <p className="text-sm font-body leading-relaxed">{result.reasoning}</p>
+                            <p className="text-sm font-body leading-relaxed text-muted-foreground">{result.reasoning}</p>
                           </div>
                         </div>
                       </div>
