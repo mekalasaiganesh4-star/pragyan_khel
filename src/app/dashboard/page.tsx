@@ -39,6 +39,7 @@ export default function Dashboard() {
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
+  const [analysisStatus, setAnalysisStatus] = useState<string>("");
   const [results, setResults] = useState<AnalysisResult[]>([]);
   const [previewFrames, setPreviewFrames] = useState<VideoFrame[]>([]);
   const [progress, setProgress] = useState(0);
@@ -53,6 +54,7 @@ export default function Dashboard() {
       setResults([]);
       setPreviewFrames([]);
       setProgress(0);
+      setAnalysisStatus("");
     }
   };
 
@@ -102,6 +104,7 @@ export default function Dashboard() {
     setIsAnalyzing(true);
     setResults([]);
     setProgress(0);
+    setAnalysisStatus("Starting analysis...");
 
     const video = videoRef.current;
     const duration = video.duration;
@@ -120,13 +123,33 @@ export default function Dashboard() {
       const currentFrameUri = captureFrame(video);
       
       if (previousFrameUri) {
-        try {
-          const aiResult = await detectMotionInconsistencies({
-            previousFrameDataUri: previousFrameUri,
-            currentFrameDataUri: currentFrameUri,
-            frameNumber: i,
-          });
+        let aiResult: DetectMotionInconsistenciesOutput | null = null;
+        let retryCount = 0;
+        const maxRetries = 3;
 
+        while (retryCount <= maxRetries) {
+          try {
+            setAnalysisStatus(`Analyzing frame ${i} of ${frameCount}...`);
+            aiResult = await detectMotionInconsistencies({
+              previousFrameDataUri: previousFrameUri,
+              currentFrameDataUri: currentFrameUri,
+              frameNumber: i,
+            });
+            break; // Success
+          } catch (error: any) {
+            const errorMsg = error.toString();
+            if (errorMsg.includes("429") || errorMsg.includes("RESOURCE_EXHAUSTED") || errorMsg.includes("quota")) {
+              retryCount++;
+              if (retryCount > maxRetries) break;
+              setAnalysisStatus(`Rate limit reached. Waiting 13s to retry frame ${i}...`);
+              await new Promise(r => setTimeout(r, 13500));
+            } else {
+              break;
+            }
+          }
+        }
+
+        if (aiResult) {
           analyzedResults.push({
             frameNumber: i,
             timestamp: (i * interval).toFixed(3),
@@ -136,8 +159,6 @@ export default function Dashboard() {
             frameDataUri: currentFrameUri,
             ballTracking: aiResult.ballTracking,
           });
-        } catch (error) {
-          console.error("AI Analysis failed for frame", i, error);
         }
       } else {
         analyzedResults.push({
@@ -157,6 +178,7 @@ export default function Dashboard() {
     }
 
     setIsAnalyzing(false);
+    setAnalysisStatus("");
   };
 
   const stats = {
@@ -305,7 +327,7 @@ export default function Dashboard() {
                   <Activity className="h-8 w-8 text-primary animate-spin" />
                   <div className="space-y-2 w-full">
                     <p className="font-headline font-bold">Plotting Trajectory</p>
-                    <p className="text-xs text-muted-foreground">Identifying motion vectors and ball path...</p>
+                    <p className="text-xs text-muted-foreground">{analysisStatus || "Identifying motion vectors and ball path..."}</p>
                     <Progress value={progress} className="h-2" />
                   </div>
                 </div>
