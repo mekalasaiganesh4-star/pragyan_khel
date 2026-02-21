@@ -1,3 +1,10 @@
 {
-  "placeholderImages": []
+  "placeholderImages": [
+    {
+      "id": "analysis-hero",
+      "description": "Abstract visualization of video frames and motion data",
+      "imageUrl": "https://images.unsplash.com/photo-1759912804199-a104b710a308?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHw5fHxtb3Rpb24lMjB2aXN1YWxpemF0aW9ufGVufDB8fHx8MTc3MTY0OTg5N3ww&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "motion visualization"
+    }
+  ]
 }

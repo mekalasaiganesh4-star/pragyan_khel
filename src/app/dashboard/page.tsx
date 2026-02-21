@@ -1,0 +1,333 @@
+"use client";
+
+import { useState, useRef, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import { Upload, Play, AlertCircle, CheckCircle2, FileVideo, History, Activity, AlertTriangle } from "lucide-react";
+import { detectMotionInconsistencies, type DetectMotionInconsistenciesOutput } from "@/ai/flows/detect-motion-inconsistencies-flow";
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
+import { Area, AreaChart, CartesianGrid, XAxis, YAxis, ResponsiveContainer } from "recharts";
+
+type AnalysisResult = {
+  frameNumber: number;
+  timestamp: string;
+  classification: "Normal" | "Frame Drop" | "Frame Merge";
+  confidence: number;
+  reasoning: string;
+  frameDataUri: string;
+};
+
+export default function Dashboard() {
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [results, setResults] = useState<AnalysisResult[]>([]);
+  const [progress, setProgress] = useState(0);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setVideoFile(file);
+      setVideoUrl(URL.createObjectURL(file));
+      setResults([]);
+      setProgress(0);
+    }
+  };
+
+  const captureFrame = (video: HTMLVideoElement): string => {
+    const canvas = canvasRef.current;
+    if (!canvas) return "";
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return "";
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/jpeg", 0.7);
+  };
+
+  const runAnalysis = async () => {
+    if (!videoRef.current || !videoUrl) return;
+    setIsAnalyzing(true);
+    setResults([]);
+    setProgress(0);
+
+    const video = videoRef.current;
+    const duration = video.duration;
+    const frameCount = 10; // We'll analyze 10 frames for this demonstration
+    const interval = duration / frameCount;
+
+    const analyzedResults: AnalysisResult[] = [];
+    let previousFrameUri = "";
+
+    for (let i = 0; i < frameCount; i++) {
+      video.currentTime = i * interval;
+      await new Promise((resolve) => {
+        video.onseeked = resolve;
+      });
+
+      const currentFrameUri = captureFrame(video);
+      
+      if (previousFrameUri) {
+        try {
+          const aiResult = await detectMotionInconsistencies({
+            previousFrameDataUri: previousFrameUri,
+            currentFrameDataUri: currentFrameUri,
+            frameNumber: i,
+          });
+
+          analyzedResults.push({
+            frameNumber: i,
+            timestamp: (i * interval).toFixed(3),
+            classification: aiResult.classification,
+            confidence: aiResult.confidence,
+            reasoning: aiResult.reasoning,
+            frameDataUri: currentFrameUri,
+          });
+        } catch (error) {
+          console.error("AI Analysis failed for frame", i, error);
+        }
+      } else {
+        // First frame is always normal baseline
+        analyzedResults.push({
+          frameNumber: 0,
+          timestamp: "0.000",
+          classification: "Normal",
+          confidence: 1,
+          reasoning: "Baseline frame.",
+          frameDataUri: currentFrameUri,
+        });
+      }
+
+      previousFrameUri = currentFrameUri;
+      setProgress(((i + 1) / frameCount) * 100);
+      setResults([...analyzedResults]);
+    }
+
+    setIsAnalyzing(false);
+  };
+
+  const stats = {
+    total: results.length,
+    drops: results.filter((r) => r.classification === "Frame Drop").length,
+    merges: results.filter((r) => r.classification === "Frame Merge").length,
+    normal: results.filter((r) => r.classification === "Normal").length,
+  };
+
+  const chartData = results.map((r) => ({
+    frame: r.frameNumber,
+    confidence: r.confidence * 100,
+  }));
+
+  return (
+    <div className="p-6 max-w-7xl mx-auto space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-headline font-bold text-primary tracking-tight">Temporal Analysis</h1>
+          <p className="text-muted-foreground font-body">Detect frame inconsistencies in your video streams.</p>
+        </div>
+        <div className="flex gap-3">
+          <input
+            type="file"
+            id="video-upload"
+            className="hidden"
+            accept="video/*"
+            onChange={handleFileUpload}
+          />
+          <Button variant="outline" onClick={() => document.getElementById("video-upload")?.click()} className="rounded-full">
+            <Upload className="mr-2 h-4 w-4" /> Upload Video
+          </Button>
+          <Button 
+            onClick={runAnalysis} 
+            disabled={!videoUrl || isAnalyzing} 
+            className="bg-primary text-white hover:bg-primary/90 rounded-full"
+          >
+            {isAnalyzing ? "Analyzing..." : "Run Analysis"}
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <Card className="lg:col-span-2 overflow-hidden border-none shadow-xl bg-card">
+          <CardHeader className="bg-primary/5 pb-4">
+            <CardTitle className="text-xl font-headline flex items-center gap-2">
+              <FileVideo className="h-5 w-5 text-primary" />
+              Video Inspector
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0 relative aspect-video bg-black flex items-center justify-center">
+            {videoUrl ? (
+              <>
+                <video
+                  ref={videoRef}
+                  src={videoUrl}
+                  controls
+                  className="max-h-full w-full"
+                  crossOrigin="anonymous"
+                />
+                <canvas ref={canvasRef} className="hidden" />
+              </>
+            ) : (
+              <div className="flex flex-col items-center gap-3 text-white/50">
+                <FileVideo className="h-12 w-12" />
+                <p>No video selected for analysis</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <div className="space-y-6">
+          <Card className="border-none shadow-lg">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-lg font-headline">Analysis Summary</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-4 bg-background rounded-xl border border-border">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wider font-bold">Total Frames</p>
+                  <p className="text-2xl font-bold text-primary">{stats.total}</p>
+                </div>
+                <div className="p-4 bg-background rounded-xl border border-border">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wider font-bold">Inconsistencies</p>
+                  <p className="text-2xl font-bold text-destructive">{stats.drops + stats.merges}</p>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span>Normal Frames</span>
+                  <span className="font-bold">{stats.normal}</span>
+                </div>
+                <Progress value={stats.total ? (stats.normal / stats.total) * 100 : 0} className="h-2" />
+                <div className="flex justify-between text-sm pt-2">
+                  <span className="flex items-center gap-1"><AlertCircle className="h-3 w-3 text-destructive" /> Drops</span>
+                  <span className="font-bold text-destructive">{stats.drops}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="flex items-center gap-1"><AlertTriangle className="h-3 w-3 text-amber-500" /> Merges</span>
+                  <span className="font-bold text-amber-500">{stats.merges}</span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {isAnalyzing && (
+            <Card className="border-none shadow-lg animate-pulse bg-primary/5">
+              <CardContent className="p-6">
+                <div className="flex flex-col items-center gap-4 text-center">
+                  <Activity className="h-8 w-8 text-primary animate-spin" />
+                  <div className="space-y-2 w-full">
+                    <p className="font-headline font-bold">Analyzing Temporal Flow</p>
+                    <p className="text-xs text-muted-foreground">Extracting motion vectors and timestamps...</p>
+                    <Progress value={progress} className="h-2" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      </div>
+
+      <Tabs defaultValue="report" className="w-full">
+        <TabsList className="grid w-full grid-cols-2 lg:w-[400px] mb-6 rounded-full p-1 bg-muted">
+          <TabsTrigger value="report" className="rounded-full data-[state=active]:bg-white">Detailed Report</TabsTrigger>
+          <TabsTrigger value="timeline" className="rounded-full data-[state=active]:bg-white">Motion Timeline</TabsTrigger>
+        </TabsList>
+        <TabsContent value="report" className="space-y-6">
+          <Card className="border-none shadow-xl">
+            <CardHeader>
+              <CardTitle className="font-headline">Frame-by-Frame Classification</CardTitle>
+              <CardDescription>Results from temporal consistency analysis.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ScrollArea className="h-[400px] pr-4">
+                <div className="space-y-4">
+                  {results.length === 0 ? (
+                    <div className="text-center py-20 text-muted-foreground">
+                      Run analysis to see detailed frame data.
+                    </div>
+                  ) : (
+                    results.map((result, idx) => (
+                      <div key={idx} className="group p-4 rounded-2xl border border-border bg-card hover:border-primary transition-all">
+                        <div className="flex items-start gap-4">
+                          <div className="relative w-32 aspect-video rounded-lg overflow-hidden bg-muted flex-shrink-0">
+                            <img src={result.frameDataUri} alt={`Frame ${result.frameNumber}`} className="object-cover w-full h-full" />
+                          </div>
+                          <div className="flex-1 space-y-1">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <span className="font-code text-xs bg-muted px-2 py-0.5 rounded text-muted-foreground">F#{result.frameNumber}</span>
+                                <span className="font-code text-xs bg-muted px-2 py-0.5 rounded text-muted-foreground">{result.timestamp}s</span>
+                                {result.classification === "Normal" ? (
+                                  <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20"><CheckCircle2 className="h-3 w-3 mr-1" /> Normal</Badge>
+                                ) : result.classification === "Frame Drop" ? (
+                                  <Badge className="bg-destructive/10 text-destructive border-destructive/20 animate-bounce"><AlertCircle className="h-3 w-3 mr-1" /> Frame Drop</Badge>
+                                ) : (
+                                  <Badge className="bg-amber-500/10 text-amber-600 border-amber-500/20"><AlertTriangle className="h-3 w-3 mr-1" /> Frame Merge</Badge>
+                                )}
+                              </div>
+                              <span className="text-xs font-bold text-accent">{(result.confidence * 100).toFixed(0)}% Confidence</span>
+                            </div>
+                            <p className="text-sm font-body leading-relaxed">{result.reasoning}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </ScrollArea>
+            </CardContent>
+          </Card>
+        </TabsContent>
+        <TabsContent value="timeline">
+          <Card className="border-none shadow-xl">
+            <CardHeader>
+              <CardTitle className="font-headline">Motion Confidence Chart</CardTitle>
+              <CardDescription>Probability of temporal consistency over time.</CardDescription>
+            </CardHeader>
+            <CardContent className="h-[400px]">
+              {results.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={chartData}>
+                    <defs>
+                      <linearGradient id="colorConf" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#4B0082" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="#4B0082" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                    <XAxis 
+                      dataKey="frame" 
+                      label={{ value: 'Frame Number', position: 'insideBottomRight', offset: -10 }} 
+                    />
+                    <YAxis 
+                      label={{ value: 'Confidence %', angle: -90, position: 'insideLeft' }} 
+                    />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Area 
+                      type="monotone" 
+                      dataKey="confidence" 
+                      stroke="#4B0082" 
+                      fillOpacity={1} 
+                      fill="url(#colorConf)" 
+                      strokeWidth={3}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex items-center justify-center h-full text-muted-foreground italic">
+                  Run analysis to generate visualization.
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
