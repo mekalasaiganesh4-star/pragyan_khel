@@ -76,8 +76,8 @@ Analyze the motion, objects, and overall visual continuity between the 'Previous
 
 Based on your analysis, classify the 'Current Frame' (Frame number: {{{frameNumber}}}) relative to the 'Previous Frame'. Provide a confidence score (0.0 to 1.0) and a detailed reasoning for your classification.
 
-Previous Frame: {{media url=previousFrameDataUri}}
-Current Frame: {{media url=currentFrameDataUri}}`,
+Previous Frame: {{media url=previousFrameDataUri contentType="image/jpeg"}}
+Current Frame: {{media url=currentFrameDataUri contentType="image/jpeg"}}`,
 });
 
 const detectMotionInconsistenciesFlow = ai.defineFlow(
