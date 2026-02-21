@@ -8,7 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { Upload, Play, AlertCircle, CheckCircle2, FileVideo, History, Activity, AlertTriangle, Image as ImageIcon, Target } from "lucide-react";
+import { Upload, Play, AlertCircle, CheckCircle2, FileVideo, History, Activity, AlertTriangle, Image as ImageIcon, Target, MousePointer2 } from "lucide-react";
 import { detectMotionInconsistencies, type DetectMotionInconsistenciesOutput } from "@/ai/flows/detect-motion-inconsistencies-flow";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis, ResponsiveContainer } from "recharts";
@@ -99,6 +99,26 @@ export default function Dashboard() {
     setIsExtracting(false);
   };
 
+  const handleManualMark = (index: number, e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width;
+    const y = (e.clientY - rect.top) / rect.height;
+
+    setResults(prev => prev.map((res, i) => {
+      if (i === index) {
+        return {
+          ...res,
+          ballTracking: {
+            isDetected: true,
+            x,
+            y
+          }
+        };
+      }
+      return res;
+    }));
+  };
+
   const runAnalysis = async () => {
     if (!videoRef.current || !videoUrl) return;
     setIsAnalyzing(true);
@@ -135,7 +155,7 @@ export default function Dashboard() {
               currentFrameDataUri: currentFrameUri,
               frameNumber: i,
             });
-            break; // Success
+            break;
           } catch (error: any) {
             const errorMsg = error.toString();
             if (errorMsg.includes("429") || errorMsg.includes("RESOURCE_EXHAUSTED") || errorMsg.includes("quota")) {
@@ -246,7 +266,6 @@ export default function Dashboard() {
                   onLoadedMetadata={extractPreviewFrames}
                 />
                 <canvas ref={canvasRef} className="hidden" />
-                {/* Trajectory Overlay */}
                 <svg className="absolute inset-0 pointer-events-none w-full h-full">
                   {trajectoryPoints.length > 1 && trajectoryPoints.map((point, idx) => {
                     if (idx === 0) return null;
@@ -344,15 +363,22 @@ export default function Dashboard() {
         </TabsList>
         <TabsContent value="report" className="space-y-6">
           <Card className="border-none shadow-xl">
-            <CardHeader>
-              <CardTitle className="font-headline">
-                {results.length > 0 ? "Frame-by-Frame Tracking" : "Video Frame Gallery"}
-              </CardTitle>
-              <CardDescription>
-                {results.length > 0 
-                  ? "Results from temporal consistency and trajectory analysis." 
-                  : "Previewing frames from the uploaded video stream."}
-              </CardDescription>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle className="font-headline">
+                  {results.length > 0 ? "Frame-by-Frame Tracking" : "Video Frame Gallery"}
+                </CardTitle>
+                <CardDescription>
+                  {results.length > 0 
+                    ? "Click on any frame to manually mark the ball's position." 
+                    : "Previewing frames from the uploaded video stream."}
+                </CardDescription>
+              </div>
+              {results.length > 0 && (
+                <Badge variant="secondary" className="bg-primary/10 text-primary">
+                  <MousePointer2 className="h-3 w-3 mr-1" /> Manual Overrides Enabled
+                </Badge>
+              )}
             </CardHeader>
             <CardContent>
               <ScrollArea className="h-[500px] pr-4">
@@ -395,8 +421,48 @@ export default function Dashboard() {
                     {results.map((result, idx) => (
                       <div key={idx} className="group p-4 rounded-2xl border border-border bg-card hover:border-primary transition-all">
                         <div className="flex items-start gap-4">
-                          <div className="relative w-40 aspect-video rounded-lg overflow-hidden bg-muted flex-shrink-0">
-                            <img src={result.frameDataUri} alt={`Frame ${result.frameNumber}`} className="object-cover w-full h-full" />
+                          <div 
+                            className="relative w-48 aspect-video rounded-lg overflow-hidden bg-muted flex-shrink-0 cursor-crosshair group/frame"
+                            onClick={(e) => handleManualMark(idx, e)}
+                          >
+                            <img src={result.frameDataUri} alt={`Frame ${result.frameNumber}`} className="object-cover w-full h-full pointer-events-none" />
+                            
+                            {/* Dotted lines as trajectory path for each frame */}
+                            <svg className="absolute inset-0 pointer-events-none w-full h-full">
+                              {results.slice(0, idx + 1).map((r, i, arr) => {
+                                if (i === 0 || !r.ballTracking?.isDetected || !arr[i-1].ballTracking?.isDetected) return null;
+                                const current = r.ballTracking;
+                                const prev = arr[i-1].ballTracking;
+                                if (current.x === undefined || current.y === undefined || prev.x === undefined || prev.y === undefined) return null;
+                                return (
+                                  <line
+                                    key={i}
+                                    x1={`${prev.x * 100}%`}
+                                    y1={`${prev.y * 100}%`}
+                                    x2={`${current.x * 100}%`}
+                                    y2={`${current.y * 100}%`}
+                                    stroke="hsl(var(--accent))"
+                                    strokeWidth="2"
+                                    strokeDasharray="4,4"
+                                    className="opacity-70"
+                                  />
+                                );
+                              })}
+                              {results.slice(0, idx + 1).map((r, i) => {
+                                if (!r.ballTracking?.isDetected || r.ballTracking.x === undefined || r.ballTracking.y === undefined) return null;
+                                return (
+                                  <circle
+                                    key={`dot-${i}`}
+                                    cx={`${r.ballTracking.x * 100}%`}
+                                    cy={`${r.ballTracking.y * 100}%`}
+                                    r="2"
+                                    fill="hsl(var(--accent))"
+                                    className="opacity-50"
+                                  />
+                                );
+                              })}
+                            </svg>
+
                             {result.ballTracking?.isDetected && result.ballTracking.x !== undefined && result.ballTracking.y !== undefined && (
                               <div 
                                 className="absolute w-4 h-4 border-2 border-accent rounded-full -translate-x-1/2 -translate-y-1/2"
@@ -408,6 +474,9 @@ export default function Dashboard() {
                                 <div className="absolute inset-0 bg-accent/30 animate-ping rounded-full" />
                               </div>
                             )}
+                            <div className="absolute inset-0 bg-black/0 group-hover/frame:bg-black/10 transition-colors flex items-center justify-center">
+                              <MousePointer2 className="text-white opacity-0 group-hover/frame:opacity-100 drop-shadow-md" />
+                            </div>
                           </div>
                           <div className="flex-1 space-y-2">
                             <div className="flex items-center justify-between">
